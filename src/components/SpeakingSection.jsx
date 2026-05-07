@@ -43,10 +43,18 @@ export default function SpeakingSection({ lessonId }) {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       audioChunks.current = []
-      mediaRecorder.current = new MediaRecorder(stream)
+
+      // Pick best supported format: mp4 for Safari/iOS, webm for Chrome/Android
+      const mimeType = MediaRecorder.isTypeSupported('audio/mp4')
+        ? 'audio/mp4'
+        : MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : 'audio/webm'
+
+      mediaRecorder.current = new MediaRecorder(stream, { mimeType })
       mediaRecorder.current.ondataavailable = e => audioChunks.current.push(e.data)
       mediaRecorder.current.onstop = () => {
-        audioBlob.current = new Blob(audioChunks.current, { type: 'audio/webm' })
+        audioBlob.current = new Blob(audioChunks.current, { type: mimeType })
         const url = URL.createObjectURL(audioBlob.current)
         setAudioUrl(url)
         stream.getTracks().forEach(t => t.stop())
@@ -76,10 +84,11 @@ export default function SpeakingSection({ lessonId }) {
 
     // Upload audio if we have a new blob
     if (audioBlob.current) {
-      const fileName = `speaking_${lessonId}_${Date.now()}.webm`
+      const ext = audioBlob.current.type.includes('mp4') ? 'mp4' : 'webm'
+      const fileName = `speaking_${lessonId}_${Date.now()}.${ext}`
       const { data: uploadData } = await supabase.storage
         .from('audios')
-        .upload(fileName, audioBlob.current, { upsert: true })
+        .upload(fileName, audioBlob.current, { upsert: true, contentType: audioBlob.current.type })
 
       if (uploadData) {
         const { data: urlData } = supabase.storage.from('audios').getPublicUrl(fileName)
