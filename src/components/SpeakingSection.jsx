@@ -2,17 +2,37 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import styles from './Section.module.css'
 
+// Detect best supported mime type for this browser/device
+function getSupportedMimeType() {
+  const types = [
+    'audio/mp4',
+    'audio/mp4;codecs=mp4a.40.2',
+    'audio/aac',
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/ogg;codecs=opus',
+  ]
+  for (const type of types) {
+    if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(type)) {
+      return type
+    }
+  }
+  return ''
+}
+
 export default function SpeakingSection({ lessonId }) {
   const [activity, setActivity] = useState('')
   const [transcription, setTranscription] = useState('')
   const [corrections, setCorrections] = useState('')
-  const [recordingState, setRecordingState] = useState('idle') // idle | recording | stopped
+  const [recordingState, setRecordingState] = useState('idle')
   const [audioUrl, setAudioUrl] = useState(null)
+  const [audioMime, setAudioMime] = useState('')
   const [recSeconds, setRecSeconds] = useState(0)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [loading, setLoading] = useState(true)
   const [taskId, setTaskId] = useState(null)
+  const [micError, setMicError] = useState('')
 
   const mediaRecorder = useRef(null)
   const audioChunks = useRef([])
@@ -20,6 +40,7 @@ export default function SpeakingSection({ lessonId }) {
   const audioBlob = useRef(null)
 
   useEffect(() => { loadData() }, [lessonId])
+  useEffect(() => () => { clearInterval(timerRef.current) }, [])
 
   async function loadData() {
     setLoading(true)
@@ -34,44 +55,78 @@ export default function SpeakingSection({ lessonId }) {
       setActivity(data.activity || '')
       setTranscription(data.transcription || '')
       setCorrections(data.corrections || '')
-      if (data.audio_url) setAudioUrl(data.audio_url)
+      if (data.audio_url) {
+        setAudioUrl(data.audio_url)
+        setRecordingState('stopped')
+      }
     }
     setLoading(false)
   }
 
   async function startRecording() {
+    setMicError('')
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       audioChunks.current = []
 
-      // Pick best supported format: mp4 for Safari/iOS, webm for Chrome/Android
-      const mimeType = MediaRecorder.isTypeSupported('audio/mp4')
-        ? 'audio/mp4'
-        : MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-        ? 'audio/webm;codecs=opus'
-        : 'audio/webm'
+      const mimeType = getSupportedMimeType()
+      const options = mimeType ? { mimeType } : {}
 
-      mediaRecorder.current = new MediaRecorder(stream, { mimeType })
-      mediaRecorder.current.ondataavailable = e => audioChunks.current.push(e.data)
+      try {
+        mediaRecorder.current = new MediaRecorder(stream, options)
+      } catch {
+        mediaRecorder.current = new MediaRecorder(stream)
+      }
+
+      const actualMime = mediaRecorder.current.mimeType || mimeType || 'audio/webm'
+      setAudioMime(actualMime)
+
+      mediaRecorder.current.ondataavailable = e => {
+        if (e.data && e.data.size > 0) audioChunks.current.push(e.data)
+      }
+
       mediaRecorder.current.onstop = () => {
-        audioBlob.current = new Blob(audioChunks.current, { type: mimeType })
-        const url = URL.createObjectURL(audioBlob.current)
+        const mime = mediaRecorder.current.mimeType || actualMime
+        const blob = new Blob(audioChunks.current, { type: mime })
+        audioBlob.current = blob
+        setAudioMime(mime)
+        const url = URL.createObjectURL(blob)
         setAudioUrl(url)
         stream.getTracks().forEach(t => t.stop())
       }
-      mediaRecorder.current.start()
+
+      // timeslice of 1000ms helps iOS collect chunks reliably
+      mediaRecorder.current.start(1000)
       setRecordingState('recording')
       setRecSeconds(0)
       timerRef.current = setInterval(() => setRecSeconds(s => s + 1), 1000)
     } catch (err) {
-      alert('No se pudo acceder al micrófono. Verifica los permisos.')
+      if (err.name === 'NotAllowedError') {
+        setMicError('Permiso denegado. Ve a Configuración → Safari → Micrófono y actívalo.')
+      } else if (err.name === 'NotFoundError') {
+        setMicError('No se encontró micrófono en este dispositivo.')
+      } else {
+        setMicError('Error al acceder al micrófono: ' + err.message)
+      }
     }
   }
 
   function stopRecording() {
-    if (mediaRecorder.current) mediaRecorder.current.stop()
+    if (mediaRecorder.current && mediaRecorder.current.state !== 'inactive') {
+      mediaRecorder.current.stop()
+    }
     clearInterval(timerRef.current)
     setRecordingState('stopped')
+  }
+
+  function resetRecording() {
+    if (audioUrl && audioUrl.startsWith('blob:')) URL.revokeObjectURL(audioUrl)
+    audioBlob.current = null
+    setAudioUrl(null)
+    setAudioMime('')
+    setRecordingState('idle')
+    setRecSeconds(0)
+    setMicError('')
   }
 
   function formatTime(s) {
@@ -82,13 +137,16 @@ export default function SpeakingSection({ lessonId }) {
     setSaving(true)
     let finalAudioUrl = audioUrl
 
-    // Upload audio if we have a new blob
     if (audioBlob.current) {
-      const ext = audioBlob.current.type.includes('mp4') ? 'mp4' : 'webm'
+      const mime = audioBlob.current.type || audioMime || 'audio/webm'
+      let ext = 'webm'
+      if (mime.includes('mp4') || mime.includes('aac')) ext = 'mp4'
+      else if (mime.includes('ogg')) ext = 'ogg'
+
       const fileName = `speaking_${lessonId}_${Date.now()}.${ext}`
       const { data: uploadData } = await supabase.storage
         .from('audios')
-        .upload(fileName, audioBlob.current, { upsert: true, contentType: audioBlob.current.type })
+        .upload(fileName, audioBlob.current, { upsert: true, contentType: mime })
 
       if (uploadData) {
         const { data: urlData } = supabase.storage.from('audios').getPublicUrl(fileName)
@@ -96,13 +154,7 @@ export default function SpeakingSection({ lessonId }) {
       }
     }
 
-    const payload = {
-      lesson_id: lessonId,
-      activity,
-      transcription,
-      corrections,
-      audio_url: finalAudioUrl,
-    }
+    const payload = { lesson_id: lessonId, activity, transcription, corrections, audio_url: finalAudioUrl }
 
     if (taskId) {
       await supabase.from('speaking_tasks').update(payload).eq('id', taskId)
@@ -139,12 +191,21 @@ export default function SpeakingSection({ lessonId }) {
       <div className={styles.card}>
         <label className={styles.label}>Grabación de audio</label>
         <div className={styles.recordArea}>
+
           {recordingState === 'idle' && (
-            <button className={styles.recBtn} onClick={startRecording}>
-              <span className={styles.recDot} />
-              Grabar audio
-            </button>
+            <>
+              <button className={styles.recBtn} onClick={startRecording}>
+                <span className={styles.recDot} />
+                Grabar audio
+              </button>
+              {micError && (
+                <p style={{ fontSize: 12, color: 'var(--red)', marginTop: 8, lineHeight: 1.5 }}>
+                  ⚠️ {micError}
+                </p>
+              )}
+            </>
           )}
+
           {recordingState === 'recording' && (
             <div className={styles.recActive}>
               <div className={styles.recPulse} />
@@ -152,22 +213,19 @@ export default function SpeakingSection({ lessonId }) {
               <button className={styles.stopBtn} onClick={stopRecording}>Detener</button>
             </div>
           )}
+
           {recordingState === 'stopped' && audioUrl && (
             <div className={styles.audioPlayer}>
-              <audio controls src={audioUrl} className={styles.audio} />
-              <button className={styles.rerecBtn} onClick={() => { setRecordingState('idle'); setAudioUrl(null); audioBlob.current = null }}>
-                Grabar de nuevo
+              <audio controls className={styles.audio} key={audioUrl} preload="auto">
+                <source src={audioUrl} type={audioMime || undefined} />
+                <source src={audioUrl} />
+              </audio>
+              <button className={styles.rerecBtn} onClick={resetRecording}>
+                🔄 Grabar de nuevo
               </button>
             </div>
           )}
-          {recordingState === 'idle' && audioUrl && (
-            <div className={styles.audioPlayer}>
-              <audio controls src={audioUrl} className={styles.audio} />
-              <button className={styles.rerecBtn} onClick={() => { setAudioUrl(null) }}>
-                Grabar de nuevo
-              </button>
-            </div>
-          )}
+
         </div>
       </div>
 
