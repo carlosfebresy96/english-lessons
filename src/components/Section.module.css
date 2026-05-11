@@ -196,6 +196,71 @@
   align-self: flex-start;
 }
 
+/* Custom audio player (replaces broken <audio> on iOS) */
+.customPlayer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+
+.playBtn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: none;
+  color: white;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: opacity 0.15s;
+}
+.playBtn:active { opacity: 0.75; }
+
+.progressWrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.progressBar {
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  background: var(--accent2);
+  border-radius: 2px;
+  transition: width 0.2s linear;
+}
+
+.progressTimes {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text3);
+}
+
+.rerecBtnSm {
+  background: none;
+  border: none;
+  font-size: 18px;
+  opacity: 0.5;
+  padding: 4px;
+  flex-shrink: 0;
+}
+.rerecBtnSm:active { opacity: 1; }
+
 .saveBtn {
   background: var(--accent);
   border: none;
