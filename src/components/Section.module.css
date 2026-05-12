@@ -196,70 +196,40 @@
   align-self: flex-start;
 }
 
-/* Custom audio player (replaces broken <audio> on iOS) */
-.customPlayer {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  background: var(--bg3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 12px 14px;
-}
-
-.playBtn {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: var(--accent);
-  border: none;
-  color: white;
-  font-size: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  transition: opacity 0.15s;
-}
-.playBtn:active { opacity: 0.75; }
-
-.progressWrap {
-  flex: 1;
+/* Audio ready state */
+.audioReady {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 10px;
 }
 
-.progressBar {
-  height: 4px;
-  background: var(--border);
-  border-radius: 2px;
-  overflow: hidden;
+.audioNative {
+  width: 100%;
+  border-radius: var(--radius-sm);
+  accent-color: var(--accent);
 }
 
-.progressFill {
-  height: 100%;
-  background: var(--accent2);
-  border-radius: 2px;
-  transition: width 0.2s linear;
-}
-
-.progressTimes {
+/* Uploading spinner */
+.uploadingRow {
   display: flex;
-  justify-content: space-between;
-  font-size: 11px;
-  color: var(--text3);
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
 }
 
-.rerecBtnSm {
-  background: none;
-  border: none;
-  font-size: 18px;
-  opacity: 0.5;
-  padding: 4px;
+.spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent2);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
   flex-shrink: 0;
 }
-.rerecBtnSm:active { opacity: 1; }
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
 
 .saveBtn {
   background: var(--accent);
